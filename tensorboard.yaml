@@ -1,0 +1,71 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: tensorboard
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: tensorboard-with-service
+    spec:
+      containers:
+      - name: tensorboard
+        env:
+          - name: TB_PORT
+            value: "6006"
+          - name: TB_LOGDIR
+            value: "/pvc/results/bert/runs"
+        command: ["tensorboard"]
+        args: [ "--port", "$(TB_PORT)", "--logdir", "$(TB_LOGDIR)" ]
+        ports:
+          - name: client-port
+            containerPort: 6006
+        resources:
+          limits:
+            cpu: "2"
+            memory: "1Gi"
+        image: tensorflow/tensorflow:latest
+        volumeMounts:
+          - name: results
+            mountPath: /pvc/results
+      volumes:
+        - name: results
+          persistentVolumeClaim:
+            claimName: results
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tensorboard-service
+spec:
+  type: NodePort
+  ports:
+    - port: 6006
+      name: client-port
+      targetPort: 6006
+  selector:
+    app: tensorboard-with-service
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: tensorboard-ingress
+  labels:
+    app: tensorboard-with-service
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    certmanager.k8s.io/cluster-issuer: letsencrypt
+spec:
+  tls:
+  - secretName: "apps-subdomain-tls"
+    hosts:
+    - "apps.datexis.com"
+  rules:
+  - host: "apps.datexis.com"
+    http:
+      paths:
+      - path: /tensorboard
+        backend:
+          serviceName: tensorboard-service
+          servicePort: 6006
