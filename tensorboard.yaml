@@ -1,4 +1,27 @@
 apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: k8s-tensorboard-bw
+  namespace: bwinter
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/whitelist-source-range: "141.64.0.0/16,2001:638:812::/48,10.0.0.0/8"
+spec:
+  tls:
+  - secretName: "k8s-tensorboard-bw-tls"
+    hosts:
+    - "tensorboardbw.demo.datexis.com"
+  rules:
+  - host: "tensorboardbw.demo.datexis.com"
+    http:
+      paths:
+      - path:
+        backend:
+          serviceName: tensorboard-service
+          servicePort: 6006
+---          
+apiVersion: extensions/v1beta1
 kind: Deployment
 metadata:
   name: tensorboard
@@ -15,31 +38,36 @@ spec:
           - name: TB_PORT
             value: "6006"
           - name: TB_LOGDIR
-            value: "/pvc/results/bert/runs"
+            value: "/pvc/publicfs/bwinter/commonsense-transformer/logs"
         command: ["tensorboard"]
-        args: [ "--port", "$(TB_PORT)", "--logdir", "$(TB_LOGDIR)" ]
+        args: [ "--port", "$(TB_PORT)", "--logdir", "$(TB_LOGDIR)" , "--host", "0.0.0.0"]
         ports:
           - name: client-port
             containerPort: 6006
         resources:
+          requests:
+            cpu: "4"
           limits:
-            cpu: "2"
-            memory: "1Gi"
+            cpu: "8"
+            memory: "8Gi"
         image: tensorflow/tensorflow:latest
         volumeMounts:
-          - name: results
-            mountPath: /pvc/results
+          - name: publicfs
+            mountPath: /pvc/publicfs
       volumes:
-        - name: results
-          persistentVolumeClaim:
-            claimName: results
+        - name: publicfs
+          flexVolume:
+             driver: ceph.rook.io/rook
+             fsType: ceph
+             options:
+               fsName: home
+               clusterNamespace: rook-ceph      
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: tensorboard-service
 spec:
-  type: NodePort
   ports:
     - port: 6006
       name: client-port
